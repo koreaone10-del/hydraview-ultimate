@@ -5,7 +5,7 @@ const urlsInput = document.getElementById('urlsInput');
 const countInput = document.getElementById('countInput');
 const proxyStats = document.getElementById('proxyStats');
 
-// تم وضع رابط الخادم الخاص بك هنا
+// رابط الخادم الخاص بك على Render
 const BACKEND_URL = 'https://hydraview-ultimate.onrender.com';
 
 async function updateProxyCount() {
@@ -20,7 +20,8 @@ async function updateProxyCount() {
 updateProxyCount();
 
 function extractYouTubeID(url) {
-    const reg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+    // تم التعديل لدعم روابط الفيديوهات القصيرة (Shorts) بالإضافة للروابط العادية
+    const reg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
     const match = url.match(reg);
     return match ? match[1] : null;
 }
@@ -33,13 +34,15 @@ launchBtn.addEventListener('click', async () => {
     const count = Math.min(parseInt(countInput.value) || 1, 200);
     grid.innerHTML = '';
     
-    // تعطيل الزر مؤقتاً وتغيير النص لتأكيد الاستجابة
+    // تعطيل الزر مؤقتاً وتغيير النص لتأكيد الاستجابة أثناء التحميل
     launchBtn.disabled = true;
     launchBtn.textContent = '⏳ جاري التشغيل...';
 
     for (let i = 0; i < count; i++) {
         const videoUrl = lines[i % lines.length];
         const videoId = extractYouTubeID(videoUrl);
+        
+        // إذا لم يتعرف الكود على الرابط، سيتم تخطيه والانتقال للذي يليه
         if (!videoId) continue;
 
         try {
@@ -73,7 +76,7 @@ launchBtn.addEventListener('click', async () => {
         }
     }
     
-    // إعادة الزر لحالته الطبيعية بعد الانتهاء
+    // إعادة الزر لحالته الطبيعية بعد الانتهاء من فتح النوافذ
     launchBtn.disabled = false;
     launchBtn.textContent = '🚀 تشغيل';
 });
