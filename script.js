@@ -5,22 +5,21 @@ const urlsInput = document.getElementById('urlsInput');
 const countInput = document.getElementById('countInput');
 const proxyStats = document.getElementById('proxyStats');
 
-// رابط الخادم الخاص بك على Render
 const BACKEND_URL = 'https://hydraview-ultimate.onrender.com';
+let activeSessions = []; // لتخزين الجلسات النشطة لإيقافها لاحقاً
 
 async function updateProxyCount() {
     try {
         const res = await fetch(`${BACKEND_URL}/api/proxy-count`);
         const data = await res.json();
         proxyStats.textContent = `البروكسيات: ${data.count}`;
-    } catch { 
+    } catch (e) { 
         proxyStats.textContent = 'البروكسيات: ?'; 
     }
 }
 updateProxyCount();
 
 function extractYouTubeID(url) {
-    // تم التعديل لدعم روابط الفيديوهات القصيرة (Shorts) بالإضافة للروابط العادية
     const reg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
     const match = url.match(reg);
     return match ? match[1] : null;
@@ -28,59 +27,64 @@ function extractYouTubeID(url) {
 
 launchBtn.addEventListener('click', async () => {
     const lines = urlsInput.value.split('\n').map(s => s.trim()).filter(Boolean);
-    
     if (!lines.length) return alert('أدخل رابطاً واحداً على الأقل');
     
-    const count = Math.min(parseInt(countInput.value) || 1, 200);
+    const count = Math.min(parseInt(countInput.value) || 1, 20); // قللنا الحد الأقصى لحماية الخادم
     grid.innerHTML = '';
+    activeSessions = [];
     
-    // تعطيل الزر مؤقتاً وتغيير النص لتأكيد الاستجابة أثناء التحميل
     launchBtn.disabled = true;
-    launchBtn.textContent = '⏳ جاري التشغيل...';
+    launchBtn.textContent = '⏳ يتم تجهيز الخادم...';
 
     for (let i = 0; i < count; i++) {
         const videoUrl = lines[i % lines.length];
         const videoId = extractYouTubeID(videoUrl);
         
-        // إذا لم يتعرف الكود على الرابط، سيتم تخطيه والانتقال للذي يليه
-        if (!videoId) continue;
+        if (!videoId) {
+            alert('❌ لم يتم التعرف على الرابط: ' + videoUrl);
+            continue;
+        }
 
         try {
-            // طلب جلسة جديدة من الخادم
             const sessionRes = await fetch(`${BACKEND_URL}/api/create-session?videoId=${videoId}`);
             
-            // التأكد من أن الخادم رد بنجاح
-            if (!sessionRes.ok) throw new Error('فشل الاتصال بالخادم');
+            if (!sessionRes.ok) throw new Error('فشل تشغيل المتصفح');
             
-            const { sessionId, proxyInfo } = await sessionRes.json();
+            const data = await sessionRes.json();
+            activeSessions.push(data.sessionId);
 
+            // بناء بطاقة معلومات بدلاً من شاشة الفيديو
             const cell = document.createElement('div');
             cell.className = 'video-cell';
+            cell.style.display = 'flex';
+            cell.style.flexDirection = 'column';
+            cell.style.justifyContent = 'center';
+            cell.style.alignItems = 'center';
+            cell.style.background = '#161b22';
 
-            const iframe = document.createElement('iframe');
-            iframe.src = `${BACKEND_URL}/embed/${sessionId}`;
-            iframe.allow = 'autoplay; encrypted-media';
-            iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
+            cell.innerHTML = `
+                <div style="color: #4ade80; margin-bottom: 10px;">${data.status}</div>
+                <div style="font-size: 12px; color: #8b949e;">البروكسي:</div>
+                <div style="font-size: 14px; font-weight: bold; color: #fff;">${data.proxyInfo}</div>
+                <div style="font-size: 10px; color: #8b949e; margin-top: 10px;">سيتم الإغلاق بعد 3 دقائق</div>
+            `;
 
-            const label = document.createElement('div');
-            label.className = 'proxy-label';
-            label.textContent = proxyInfo || 'بدون';
-
-            cell.appendChild(iframe);
-            cell.appendChild(label);
             grid.appendChild(cell);
             
         } catch (error) {
-            console.error('حدث خطأ أثناء تحميل الفيديو:', error);
-            break; // إيقاف الحلقة إذا كان الخادم لا يستجيب
+            console.error(error);
         }
     }
     
-    // إعادة الزر لحالته الطبيعية بعد الانتهاء من فتح النوافذ
     launchBtn.disabled = false;
     launchBtn.textContent = '🚀 تشغيل';
 });
 
 stopBtn.addEventListener('click', () => {
-    grid.innerHTML = '';
+    // إيقاف جميع المتصفحات على الخادم
+    activeSessions.forEach(sessionId => {
+        fetch(`${BACKEND_URL}/api/stop-session?sessionId=${sessionId}`);
+    });
+    grid.innerHTML = '<div style="color: #f85149; padding: 20px;">تم إرسال أمر الإيقاف للخادم.</div>';
+    activeSessions = [];
 });
