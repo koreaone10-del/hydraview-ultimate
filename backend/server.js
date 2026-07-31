@@ -12,14 +12,14 @@ app.use(express.json());
 
 const activeBrowsers = {};
 let currentSessions = 0;
-const MAX_SESSIONS = 3; 
+// ⚠️ تحذير: 10 نوافذ تتطلب باقة مدفوعة (2GB RAM) في Render. في الباقة المجانية سينهار الخادم.
+const MAX_SESSIONS = 10; 
 
 loadProxies();
-// جلب بروكسيات جديدة كل 10 دقائق لتعويض البروكسيات المحذوفة
-setInterval(loadProxies, 10 * 60 * 1000); 
+setInterval(loadProxies, 15 * 60 * 1000); 
 
 app.get('/api/proxy-count', (req, res) => {
-    res.json({ count: getProxyCount() });
+    res.json(getProxyCount());
 });
 
 app.get('/api/create-session', async (req, res) => {
@@ -46,7 +46,9 @@ app.get('/api/create-session', async (req, res) => {
                 `--proxy-server=http://${usedProxy.ip}:${usedProxy.port}`,
                 '--mute-audio',
                 '--disable-dev-shm-usage',
-                '--no-sandbox'
+                '--no-sandbox',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process' // لتقليل كشف الروبوت
             ],
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
@@ -57,32 +59,43 @@ app.get('/api/create-session', async (req, res) => {
         activeBrowsers[sessionId] = browser;
         const page = await browser.newPage();
 
+        // التعديل: نسمح بتحميل بعض الملفات لكي لا نكشف أننا "شبح" تماماً ليوتيوب
         await page.setRequestInterception(true);
         page.on('request', (req) => {
-            if (['image', 'stylesheet', 'font'].includes(req.resourceType())) req.abort();
-            else req.continue();
+            if (['image', 'font'].includes(req.resourceType())) req.abort(); // نمنع الصور والخطوط فقط لتوفير قليل من الـ RAM
+            else req.continue(); // نسمح بـ CSS و JS ليقتنع يوتيوب
+        });
+
+        // تمويه بصمة المتصفح (Spoofing)
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            window.chrome = { runtime: {} }; // إقناع يوتيوب أنه متصفح كروم حقيقي
         });
 
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         
-        // مهلة 20 ثانية فقط! إما أن يفتح أو يتم إعدامه
-        await page.goto(`https://www.youtube.com/watch?v=${videoId}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.goto(`https://www.youtube.com/watch?v=${videoId}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        await page.evaluate(() => {
+        // محاكاة بشرية لاحتساب المشاهدة
+        await page.evaluate(async () => {
             const playBtn = document.querySelector('.ytp-play-button');
             if(playBtn) playBtn.click();
+            
+            // تمرير الشاشة (Scroll) بشكل عشوائي ليبدو طبيعياً
+            setInterval(() => {
+                window.scrollBy(0, Math.random() > 0.5 ? 100 : -50);
+            }, 5000);
         });
 
         reportProxyResult(usedProxy.ip, usedProxy.port, true);
 
-        // إغلاق ذاتي بعد دقيقتين للمشاهدة الناجحة
         setTimeout(async () => {
             if (activeBrowsers[sessionId]) {
                 try { await activeBrowsers[sessionId].close(); } catch(e) {}
                 delete activeBrowsers[sessionId];
                 currentSessions = Math.max(0, currentSessions - 1);
             }
-        }, 120000); 
+        }, 150000); // 2.5 دقيقة كحد أقصى
 
         res.json({
             sessionId,
@@ -91,8 +104,7 @@ app.get('/api/create-session', async (req, res) => {
         });
 
     } catch (e) {
-        // فشل في فتح الصفحة خلال 20 ثانية
-        reportProxyResult(usedProxy.ip, usedProxy.port, false); // يتم حذفه هنا
+        reportProxyResult(usedProxy.ip, usedProxy.port, false);
         if (browser) {
             try { await browser.close(); } catch(err) {}
         }
