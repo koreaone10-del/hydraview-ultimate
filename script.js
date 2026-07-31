@@ -7,9 +7,10 @@ const proxyStats = document.getElementById('proxyStats');
 
 const BACKEND_URL = 'https://hydraview-ultimate.onrender.com';
 let activeSessions = []; 
+let isSystemRunning = false; // للتحكم في الإيقاف الشامل
 
 async function updateProxyCount() {
-    proxyStats.textContent = '⏳ جاري الاتصال بالخادم...';
+    proxyStats.textContent = '⏳ جاري الاتصال...';
     try {
         const res = await fetch(`${BACKEND_URL}/api/proxy-count`);
         if (!res.ok) throw new Error('Network error');
@@ -27,77 +28,122 @@ function extractYouTubeID(url) {
     return match ? match[1] : null;
 }
 
-launchBtn.addEventListener('click', async () => {
-    const lines = urlsInput.value.split('\n').map(s => s.trim()).filter(Boolean);
-    if (!lines.length) return alert('أدخل رابطاً واحداً على الأقل');
-    
-    const count = Math.min(parseInt(countInput.value) || 1, 4); 
-    grid.innerHTML = '';
-    activeSessions = [];
-    
-    launchBtn.disabled = true;
-    launchBtn.textContent = '⏳ يتم تجهيز الخادم...';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    for (let i = 0; i < count; i++) {
-        const videoUrl = lines[i % lines.length];
+// وظيفة كل مربع (حلقة لا نهائية تتنقل بين الروابط)
+async function startSquareLoop(cell, initialUrlIndex, lines) {
+    let currentUrlIndex = initialUrlIndex;
+    let squareActive = true;
+
+    // ربط دالة الإيقاف بالمربع ليتمكن زر "إيقاف الكل" من إنهاء الحلقة
+    cell.stopLoop = () => { squareActive = false; };
+
+    while (squareActive && isSystemRunning) {
+        const videoUrl = lines[currentUrlIndex % lines.length];
         const videoId = extractYouTubeID(videoUrl);
-        
+
         if (!videoId) {
-            alert('❌ لم يتم التعرف على الرابط: ' + videoUrl);
+            currentUrlIndex++;
             continue;
         }
+
+        cell.innerHTML = `
+            <div class="status-text text-blue">🔄 طلب جديد</div>
+            <div class="proxy-text">التواصل مع الخادم...</div>
+        `;
 
         try {
             const sessionRes = await fetch(`${BACKEND_URL}/api/create-session?videoId=${videoId}`);
             const data = await sessionRes.json();
             
+            // إذا كان الخادم يعالج الحد الأقصى للمتصفحات، انتظر في الطابور بصمت
+            if (sessionRes.status === 429) {
+                cell.innerHTML = `
+                    <div class="status-text text-yellow">⏳ في الطابور</div>
+                    <div class="proxy-text">الخادم مشغول الآن</div>
+                `;
+                await sleep(5000 + Math.random() * 5000); // انتظار 5 إلى 10 ثوانٍ قبل المحاولة
+                continue;
+            }
+            
             if (!sessionRes.ok) throw new Error(data.error || 'فشل الاتصال');
             
             activeSessions.push(data.sessionId);
 
-            const cell = document.createElement('div');
-            cell.className = 'video-cell';
-            cell.style.display = 'flex';
-            cell.style.flexDirection = 'column';
-            cell.style.justifyContent = 'center';
-            cell.style.alignItems = 'center';
-            cell.style.background = '#161b22';
+            // 🟢 النجاح! بدء العداد التنازلي للمشاهدة
+            // العداد بين 60 و 90 ثانية عشوائياً لضمان احتساب يوتيوب للمشاهدة
+            let timeLeft = 60 + Math.floor(Math.random() * 30); 
+            
+            while (timeLeft > 0 && squareActive && isSystemRunning) {
+                cell.innerHTML = `
+                    <div class="status-text text-green">✅ جاري المشاهدة</div>
+                    <div class="timer">${timeLeft}</div>
+                    <div class="proxy-text">${data.proxyInfo}</div>
+                `;
+                await sleep(1000);
+                timeLeft--;
+            }
 
-            cell.innerHTML = `
-                <div style="color: #4ade80; margin-bottom: 10px;">${data.status}</div>
-                <div style="font-size: 12px; color: #8b949e;">البروكسي المستخدم:</div>
-                <div style="font-size: 14px; font-weight: bold; color: #fff;">${data.proxyInfo}</div>
-            `;
-            grid.appendChild(cell);
-            
+            // بعد انتهاء العداد، نغلق المتصفح لنوفر الذاكرة للمربع التالي
+            if (squareActive && isSystemRunning) {
+                cell.innerHTML = `<div class="status-text text-yellow">⏹ جاري الإغلاق...</div>`;
+                await fetch(`${BACKEND_URL}/api/stop-session?sessionId=${data.sessionId}`).catch(()=>{});
+                activeSessions = activeSessions.filter(id => id !== data.sessionId);
+                
+                // الانتقال للرابط التالي في القائمة للمحاولة القادمة
+                currentUrlIndex++; 
+            }
+
         } catch (error) {
-            const cell = document.createElement('div');
-            cell.className = 'video-cell';
-            cell.style.display = 'flex';
-            cell.style.flexDirection = 'column';
-            cell.style.justifyContent = 'center';
-            cell.style.alignItems = 'center';
-            cell.style.background = '#300f0f';
-            cell.style.border = '1px solid #f85149';
-            
+            // 🔴 فشل البروكسي: تخطي سريع والمحاولة مرة أخرى
             cell.innerHTML = `
-                <div style="color: #f85149; margin-bottom: 5px;">❌ خطأ في الاتصال</div>
-                <div style="font-size: 11px; color: #c9d1d9; text-align: center; padding: 5px;">
-                    ${error.message}
-                </div>
+                <div class="status-text text-red">❌ فشل البروكسي</div>
+                <div class="proxy-text">جاري التخطي السريع...</div>
             `;
-            grid.appendChild(cell);
+            await sleep(3000); // انتظار 3 ثوانٍ فقط ثم إعادة المحاولة لنفس الرابط ببروكسي جديد
         }
     }
+}
+
+launchBtn.addEventListener('click', async () => {
+    const lines = urlsInput.value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!lines.length) return alert('أدخل رابطاً واحداً على الأقل');
     
-    launchBtn.disabled = false;
-    launchBtn.textContent = '🚀 تشغيل';
+    // إزالة حد الـ 4 مربعات. الآن يمكنك فتح ما تشاء من المربعات في الواجهة
+    const count = parseInt(countInput.value) || 1; 
+    
+    grid.innerHTML = '';
+    activeSessions = [];
+    isSystemRunning = true;
+    
+    launchBtn.disabled = true;
+
+    // رسم المربعات وإطلاق الحلقات
+    for (let i = 0; i < count; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'video-cell';
+        grid.appendChild(cell);
+        
+        // إطلاق الحلقة لكل مربع بشكل متزامن
+        startSquareLoop(cell, i, lines);
+    }
 });
 
 stopBtn.addEventListener('click', () => {
+    isSystemRunning = false;
+    
+    // إيقاف جميع الحلقات الفعالة في المربعات
+    const cells = document.querySelectorAll('.video-cell');
+    cells.forEach(cell => {
+        if(cell.stopLoop) cell.stopLoop();
+    });
+
+    // إرسال طلبات الإغلاق للخادم
     activeSessions.forEach(sessionId => {
         fetch(`${BACKEND_URL}/api/stop-session?sessionId=${sessionId}`).catch(() => {});
     });
-    grid.innerHTML = '<div style="color: #f85149; padding: 20px;">تم إرسال أمر الإيقاف لتفريغ الذاكرة.</div>';
+    
+    grid.innerHTML = '<div style="color: #f85149; padding: 20px;">تم إيقاف النظام وتفريغ الخادم.</div>';
     activeSessions = [];
+    launchBtn.disabled = false;
 });
