@@ -12,7 +12,7 @@ app.use(express.json());
 
 const activeBrowsers = {};
 let currentSessions = 0;
-const MAX_SESSIONS = 2; // درع الحماية: أقصى عدد للمتصفحات النشطة لمنع انهيار الخادم
+const MAX_SESSIONS = 2; // الحد الأقصى للمتصفحات لمنع انهيار الـ RAM
 
 loadProxies();
 setInterval(loadProxies, 30 * 60 * 1000);
@@ -22,25 +22,25 @@ app.get('/api/proxy-count', (req, res) => {
 });
 
 app.get('/api/create-session', async (req, res) => {
-    // 1. فحص درع الحماية
     if (currentSessions >= MAX_SESSIONS) {
-        return res.status(429).json({ error: 'الخادم ممتلئ حالياً، يرجى الانتظار قليلاً.' });
+        return res.status(429).json({ error: 'الخادم ممتلئ، انتظر قليلاً.' });
     }
 
     const videoId = req.query.videoId;
     if (!videoId) return res.status(400).json({ error: 'رابط الفيديو مطلوب' });
 
     const proxy = getBestProxy();
-    if (!proxy) return res.status(500).json({ error: 'لا توجد بروكسيات متاحة' });
+    if (!proxy) return res.status(500).json({ error: 'لا توجد بروكسيات' });
 
     const sessionId = Date.now().toString(36);
-    currentSessions++; // تسجيل دخول متصفح جديد
+    currentSessions++; 
+
+    let browser = null; // تعريف المتصفح خارج المحاولة لضمان الوصول إليه عند الخطأ
 
     try {
-        console.log(`[${sessionId}] جاري إطلاق الشبح باستخدام بروكسي ${proxy.ip}`);
+        console.log(`[${sessionId}] جاري التشغيل ببروكسي ${proxy.ip}`);
 
-        // 2. تشغيل المتصفح السحابي المصغر
-        const browser = await puppeteer.launch({
+        browser = await puppeteer.launch({
             args: [
                 ...chromium.args,
                 `--proxy-server=http://${proxy.ip}:${proxy.port}`,
@@ -54,14 +54,14 @@ app.get('/api/create-session', async (req, res) => {
             ignoreHTTPSErrors: true,
         });
 
+        // ✅ حفظ المتصفح فوراً قبل محاولة فتح أي صفحة (ترقيع تسريب الذاكرة)
+        activeBrowsers[sessionId] = browser;
+
         const page = await browser.newPage();
 
-        // 3. وضعية الشبح: توفير الذاكرة عبر حجب الصور والتصاميم
         await page.setRequestInterception(true);
         page.on('request', (req) => {
-            const type = req.resourceType();
-            // حجب كل شيء ما عدا السكريبتات والفيديو نفسه
-            if (['image', 'stylesheet', 'font'].includes(type)) {
+            if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
                 req.abort();
             } else {
                 req.continue();
@@ -70,54 +70,60 @@ app.get('/api/create-session', async (req, res) => {
 
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // 4. الذهاب للفيديو وتشغيله
-        await page.goto(`https://www.youtube.com/watch?v=${videoId}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        // تقليل مدة الانتظار إلى 30 ثانية لتسريع اكتشاف البروكسيات الميتة
+        await page.goto(`https://www.youtube.com/watch?v=${videoId}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
         await page.evaluate(() => {
             const playBtn = document.querySelector('.ytp-play-button');
             if(playBtn) playBtn.click();
         });
 
-        activeBrowsers[sessionId] = browser;
-
-        // 5. تدمير المتصفح ذاتياً بعد دقيقتين لتفريغ الذاكرة
+        // تدمير المتصفح ذاتياً بعد دقيقتين
         setTimeout(async () => {
             if (activeBrowsers[sessionId]) {
-                await activeBrowsers[sessionId].close();
+                try { await activeBrowsers[sessionId].close(); } catch(e) {}
                 delete activeBrowsers[sessionId];
-                currentSessions--;
-                console.log(`[${sessionId}] تم إغلاق المتصفح وتفريغ الذاكرة`);
+                currentSessions = Math.max(0, currentSessions - 1);
+                console.log(`[${sessionId}] تم تفريغ الذاكرة بنجاح`);
             }
         }, 120000);
 
+        // الإبلاغ عن نجاح البروكسي
+        reportProxyResult(proxy.ip, proxy.port, true);
+
         res.json({
             sessionId,
-            proxyInfo: `${proxy.ip}:${proxy.port} (Ghost Mode)`,
-            status: '✅ المشاهدة تعمل بوضعية الشبح'
+            proxyInfo: `${proxy.ip}:${proxy.port}`,
+            status: '✅ المشاهدة تعمل'
         });
 
     } catch (e) {
-        console.error(`[${sessionId}] خطأ:`, e);
-        if (activeBrowsers[sessionId]) {
-            await activeBrowsers[sessionId].close();
-            delete activeBrowsers[sessionId];
+        console.error(`[${sessionId}] فشل البروكسي:`, e.message);
+        
+        // ✅ إغلاق المتصفح بقوة وتفريغ الذاكرة حتى لو فشل البروكسي
+        if (browser) {
+            try { await browser.close(); } catch(err) {}
         }
-        currentSessions--;
+        delete activeBrowsers[sessionId];
+        currentSessions = Math.max(0, currentSessions - 1);
+        
+        // خفض تقييم البروكسي الفاشل
         reportProxyResult(proxy.ip, proxy.port, false);
-        res.status(502).json({ error: 'فشل تشغيل المتصفح، الـ IP قد يكون محظوراً' });
+        
+        res.status(502).json({ error: 'البروكسي ضعيف أو محظور' });
     }
 });
 
 app.get('/api/stop-session', async (req, res) => {
     const { sessionId } = req.query;
     if (activeBrowsers[sessionId]) {
-        await activeBrowsers[sessionId].close();
+        try { await activeBrowsers[sessionId].close(); } catch(e) {}
         delete activeBrowsers[sessionId];
-        currentSessions--;
-        res.json({ status: 'تم الإيقاف بنجاح' });
+        currentSessions = Math.max(0, currentSessions - 1);
+        res.json({ status: 'تم الإيقاف' });
     } else {
-        res.json({ status: 'الجلسة غير موجودة' });
+        res.json({ status: 'غير موجود' });
     }
 });
 
-app.listen(PORT, () => console.log(`الخادم يعمل بوضعية الشبح على المنفذ ${PORT}`));
+app.listen(PORT, () => console.log(`الخادم يعمل على ${PORT}`));
