@@ -5,22 +5,34 @@ const urlsInput = document.getElementById('urlsInput');
 const countInput = document.getElementById('countInput');
 const proxyStats = document.getElementById('proxyStats');
 
-// غيّر هذا بعد نشر الخادم الوسيط على  
+// استبدل هذا الرابط برابط الخادم الخاص بك من Render
 const BACKEND_URL = 'https://hydraview-ultimate.onrender.com';
 
+// تحديث عدد البروكسيات
 async function updateProxyCount() {
     try {
         const res = await fetch(`${BACKEND_URL}/api/proxy-count`);
         const data = await res.json();
         proxyStats.textContent = `البروكسيات: ${data.count}`;
-    } catch { proxyStats.textContent = 'البروكسيات: ?'; }
+    } catch {
+        proxyStats.textContent = 'البروكسيات: خطأ';
+    }
 }
 updateProxyCount();
 
+// استخراج ID الفيديو من أي رابط يوتيوب (عادي، Shorts، مضمّن)
 function extractYouTubeID(url) {
-    const reg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-    const match = url.match(reg);
-    return match ? match[1] : null;
+    const patterns = [
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
+        /(?:https?:\/\/)?youtu\.be\/([a-zA-Z0-9_-]{11})/
+    ];
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match) return match[1];
+    }
+    return null;
 }
 
 launchBtn.addEventListener('click', async () => {
@@ -32,28 +44,38 @@ launchBtn.addEventListener('click', async () => {
     for (let i = 0; i < count; i++) {
         const videoUrl = lines[i % lines.length];
         const videoId = extractYouTubeID(videoUrl);
-        if (!videoId) continue;
+        if (!videoId) {
+            console.warn('لم يتم التعرف على الرابط:', videoUrl);
+            continue;
+        }
 
-        // طلب جلسة جديدة من الخادم (سيعيد رابط iframe مع session ID)
-        const sessionRes = await fetch(`${BACKEND_URL}/api/create-session?videoId=${videoId}`);
-        const { sessionId, proxyInfo } = await sessionRes.json();
+        try {
+            // طلب جلسة من الخادم
+            const sessionRes = await fetch(`${BACKEND_URL}/api/create-session?videoId=${videoId}`);
+            if (!sessionRes.ok) throw new Error('فشل إنشاء الجلسة');
+            const { sessionId, proxyInfo } = await sessionRes.json();
 
-        const cell = document.createElement('div');
-        cell.className = 'video-cell';
+            const cell = document.createElement('div');
+            cell.className = 'video-cell';
 
-        const iframe = document.createElement('iframe');
-        iframe.src = `${BACKEND_URL}/embed/${sessionId}`;
-        iframe.allow = 'autoplay; encrypted-media';
-        iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
+            const iframe = document.createElement('iframe');
+            iframe.src = `${BACKEND_URL}/embed/${sessionId}`;
+            iframe.allow = 'autoplay; encrypted-media';
+            iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
 
-        const label = document.createElement('div');
-        label.className = 'proxy-label';
-        label.textContent = proxyInfo || 'بدون';
+            const label = document.createElement('div');
+            label.className = 'proxy-label';
+            label.textContent = proxyInfo || 'بدون';
 
-        cell.appendChild(iframe);
-        cell.appendChild(label);
-        grid.appendChild(cell);
+            cell.appendChild(iframe);
+            cell.appendChild(label);
+            grid.appendChild(cell);
+        } catch (err) {
+            console.error('خطأ في النافذة', i, err);
+        }
     }
 });
 
-stopBtn.addEventListener('click', () => grid.innerHTML = '');
+stopBtn.addEventListener('click', () => {
+    grid.innerHTML = '';
+});
