@@ -7,7 +7,7 @@ const proxyStats = document.getElementById('proxyStats');
 
 const BACKEND_URL = 'https://hydraview-ultimate.onrender.com';
 let activeSessions = []; 
-let isSystemRunning = false; // للتحكم في الإيقاف الشامل
+let isSystemRunning = false; 
 
 async function updateProxyCount() {
     proxyStats.textContent = '⏳ جاري الاتصال...';
@@ -21,6 +21,7 @@ async function updateProxyCount() {
     }
 }
 updateProxyCount();
+setInterval(updateProxyCount, 10000); // تحديث العداد كل 10 ثواني لترى التنظيف المباشر للبروكسيات
 
 function extractYouTubeID(url) {
     const reg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
@@ -30,12 +31,10 @@ function extractYouTubeID(url) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// وظيفة كل مربع (حلقة لا نهائية تتنقل بين الروابط)
 async function startSquareLoop(cell, initialUrlIndex, lines) {
     let currentUrlIndex = initialUrlIndex;
     let squareActive = true;
 
-    // ربط دالة الإيقاف بالمربع ليتمكن زر "إيقاف الكل" من إنهاء الحلقة
     cell.stopLoop = () => { squareActive = false; };
 
     while (squareActive && isSystemRunning) {
@@ -48,30 +47,27 @@ async function startSquareLoop(cell, initialUrlIndex, lines) {
         }
 
         cell.innerHTML = `
-            <div class="status-text text-blue">🔄 طلب جديد</div>
-            <div class="proxy-text">التواصل مع الخادم...</div>
+            <div class="status-text text-blue">🔄 طلب بديل</div>
+            <div class="proxy-text">جلب بروكسي جديد...</div>
         `;
 
         try {
             const sessionRes = await fetch(`${BACKEND_URL}/api/create-session?videoId=${videoId}`);
             const data = await sessionRes.json();
             
-            // إذا كان الخادم يعالج الحد الأقصى للمتصفحات، انتظر في الطابور بصمت
             if (sessionRes.status === 429) {
                 cell.innerHTML = `
                     <div class="status-text text-yellow">⏳ في الطابور</div>
-                    <div class="proxy-text">الخادم مشغول الآن</div>
+                    <div class="proxy-text">الخادم مشغول</div>
                 `;
-                await sleep(5000 + Math.random() * 5000); // انتظار 5 إلى 10 ثوانٍ قبل المحاولة
+                await sleep(5000 + Math.random() * 3000); 
                 continue;
             }
             
-            if (!sessionRes.ok) throw new Error(data.error || 'فشل الاتصال');
+            if (!sessionRes.ok) throw new Error(data.error);
             
             activeSessions.push(data.sessionId);
 
-            // 🟢 النجاح! بدء العداد التنازلي للمشاهدة
-            // العداد بين 60 و 90 ثانية عشوائياً لضمان احتساب يوتيوب للمشاهدة
             let timeLeft = 60 + Math.floor(Math.random() * 30); 
             
             while (timeLeft > 0 && squareActive && isSystemRunning) {
@@ -84,23 +80,20 @@ async function startSquareLoop(cell, initialUrlIndex, lines) {
                 timeLeft--;
             }
 
-            // بعد انتهاء العداد، نغلق المتصفح لنوفر الذاكرة للمربع التالي
             if (squareActive && isSystemRunning) {
                 cell.innerHTML = `<div class="status-text text-yellow">⏹ جاري الإغلاق...</div>`;
                 await fetch(`${BACKEND_URL}/api/stop-session?sessionId=${data.sessionId}`).catch(()=>{});
                 activeSessions = activeSessions.filter(id => id !== data.sessionId);
-                
-                // الانتقال للرابط التالي في القائمة للمحاولة القادمة
                 currentUrlIndex++; 
             }
 
         } catch (error) {
-            // 🔴 فشل البروكسي: تخطي سريع والمحاولة مرة أخرى
+            // 🔴 البروكسي فشل وتم إعدامه في الخادم، ننتقل للذي يليه بسرعة
             cell.innerHTML = `
-                <div class="status-text text-red">❌ فشل البروكسي</div>
-                <div class="proxy-text">جاري التخطي السريع...</div>
+                <div class="status-text text-red">❌ فشل الاتصال</div>
+                <div class="proxy-text">تم حذفه، طلب بديل...</div>
             `;
-            await sleep(3000); // انتظار 3 ثوانٍ فقط ثم إعادة المحاولة لنفس الرابط ببروكسي جديد
+            await sleep(2000); 
         }
     }
 }
@@ -109,22 +102,17 @@ launchBtn.addEventListener('click', async () => {
     const lines = urlsInput.value.split('\n').map(s => s.trim()).filter(Boolean);
     if (!lines.length) return alert('أدخل رابطاً واحداً على الأقل');
     
-    // إزالة حد الـ 4 مربعات. الآن يمكنك فتح ما تشاء من المربعات في الواجهة
     const count = parseInt(countInput.value) || 1; 
     
     grid.innerHTML = '';
     activeSessions = [];
     isSystemRunning = true;
-    
     launchBtn.disabled = true;
 
-    // رسم المربعات وإطلاق الحلقات
     for (let i = 0; i < count; i++) {
         const cell = document.createElement('div');
         cell.className = 'video-cell';
         grid.appendChild(cell);
-        
-        // إطلاق الحلقة لكل مربع بشكل متزامن
         startSquareLoop(cell, i, lines);
     }
 });
@@ -132,13 +120,11 @@ launchBtn.addEventListener('click', async () => {
 stopBtn.addEventListener('click', () => {
     isSystemRunning = false;
     
-    // إيقاف جميع الحلقات الفعالة في المربعات
     const cells = document.querySelectorAll('.video-cell');
     cells.forEach(cell => {
         if(cell.stopLoop) cell.stopLoop();
     });
 
-    // إرسال طلبات الإغلاق للخادم
     activeSessions.forEach(sessionId => {
         fetch(`${BACKEND_URL}/api/stop-session?sessionId=${sessionId}`).catch(() => {});
     });
