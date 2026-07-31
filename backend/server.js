@@ -12,7 +12,8 @@ app.use(express.json());
 
 const activeBrowsers = {};
 let currentSessions = 0;
-const MAX_SESSIONS = 2; // أقصى عدد للمتصفحات لمنع انهيار الخادم
+// الحد الأقصى الآمن لخادم Render المجاني هو 3 متصفحات في نفس اللحظة
+const MAX_SESSIONS = 3; 
 
 loadProxies();
 setInterval(loadProxies, 30 * 60 * 1000); 
@@ -22,6 +23,7 @@ app.get('/api/proxy-count', (req, res) => {
 });
 
 app.get('/api/create-session', async (req, res) => {
+    // نظام الطابور: إذا كان الخادم مشغولاً، نطلب من الواجهة الانتظار
     if (currentSessions >= MAX_SESSIONS) {
         return res.status(429).json({ error: 'الخادم ممتلئ، يرجى الانتظار قليلاً.' });
     }
@@ -35,14 +37,14 @@ app.get('/api/create-session', async (req, res) => {
     let browser = null;
     let success = false;
     let usedProxy = null;
-    const MAX_RETRIES = 2; // محاولات متتالية لتخطي البروكسيات الميتة بصمت
+    const MAX_RETRIES = 2; 
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         usedProxy = getBestProxy();
         if (!usedProxy) break;
 
         try {
-            console.log(`[${sessionId}] محاولة ${attempt + 1}: تجربة بروكسي ${usedProxy.ip}`);
+            console.log(`[${sessionId}] تجربة بروكسي ${usedProxy.ip}`);
 
             browser = await puppeteer.launch({
                 args: [
@@ -84,9 +86,7 @@ app.get('/api/create-session', async (req, res) => {
             break; 
 
         } catch (e) {
-            console.log(`[${sessionId}] فشل بروكسي ${usedProxy.ip}`);
             reportProxyResult(usedProxy.ip, usedProxy.port, false);
-            
             if (browser) {
                 try { await browser.close(); } catch(err) {}
             }
@@ -95,22 +95,23 @@ app.get('/api/create-session', async (req, res) => {
     }
 
     if (success) {
+        // حماية إضافية: إغلاق المتصفح قسراً بعد 5 دقائق كحد أقصى إذا نسيته الواجهة
         setTimeout(async () => {
             if (activeBrowsers[sessionId]) {
                 try { await activeBrowsers[sessionId].close(); } catch(e) {}
                 delete activeBrowsers[sessionId];
                 currentSessions = Math.max(0, currentSessions - 1);
             }
-        }, 120000);
+        }, 300000); 
 
         res.json({
             sessionId,
             proxyInfo: `${usedProxy.ip}:${usedProxy.port}`,
-            status: '✅ المشاهدة تعمل بوضعية الشبح'
+            status: '✅ المشاهدة تعمل'
         });
     } else {
         currentSessions = Math.max(0, currentSessions - 1);
-        res.status(502).json({ error: 'البروكسيات المتاحة محظورة أو ضعيفة' });
+        res.status(502).json({ error: 'البروكسيات محظورة' });
     }
 });
 
@@ -120,10 +121,10 @@ app.get('/api/stop-session', async (req, res) => {
         try { await activeBrowsers[sessionId].close(); } catch(e) {}
         delete activeBrowsers[sessionId];
         currentSessions = Math.max(0, currentSessions - 1);
-        res.json({ status: 'تم الإيقاف بنجاح' });
+        res.json({ status: 'تم الإيقاف' });
     } else {
-        res.json({ status: 'الجلسة غير موجودة' });
+        res.json({ status: 'غير موجود' });
     }
 });
 
-app.listen(PORT, () => console.log(`الخادم يعمل بوضعية الشبح على المنفذ ${PORT}`));
+app.listen(PORT, () => console.log(`الخادم يعمل على المنفذ ${PORT}`));
