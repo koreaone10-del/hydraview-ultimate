@@ -22,7 +22,6 @@ async function loadProxies() {
         proxies = freshProxies;
         console.log(`✅ تم تحديث البروكسيات بنجاح (العدد الفعلي المحفوظ: ${proxies.length})`);
     } catch(e) {
-        console.error('فشل جلب البروكسيات:', e);
         if (await fse.pathExists(PROXIES_FILE)) {
             proxies = await fse.readJson(PROXIES_FILE);
         }
@@ -32,16 +31,11 @@ async function loadProxies() {
     }
 }
 
-function getProxyCount() {
-    return proxies.length;
-}
+function getProxyCount() { return proxies.length; }
 
 function getBestProxy() {
     if (proxies.length === 0) return null;
-    
-    if (Math.random() < 0.2) {
-        return proxies[Math.floor(Math.random() * proxies.length)];
-    }
+    if (Math.random() < 0.2) return proxies[Math.floor(Math.random() * proxies.length)];
     
     let topProxies = [];
     let maxScore = -1;
@@ -49,15 +43,9 @@ function getBestProxy() {
     for (const proxy of proxies) {
         const key = `${proxy.ip}:${proxy.port}`;
         const score = scores[key]?.score ?? 5;
-        
-        if (score > maxScore) {
-            maxScore = score;
-            topProxies = [proxy];
-        } else if (score === maxScore) {
-            topProxies.push(proxy);
-        }
+        if (score > maxScore) { maxScore = score; topProxies = [proxy]; }
+        else if (score === maxScore) { topProxies.push(proxy); }
     }
-
     return topProxies[Math.floor(Math.random() * topProxies.length)];
 }
 
