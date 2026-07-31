@@ -4,7 +4,6 @@ const { harvestAll } = require('./proxy-harvester');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const PROXIES_FILE = path.join(DATA_DIR, 'proxies.json');
-const SCORES_FILE = path.join(DATA_DIR, 'scores.json');
 
 let proxies = [];
 let scores = {};
@@ -20,14 +19,11 @@ async function loadProxies() {
         await fse.ensureDir(DATA_DIR);
         await fse.writeJson(PROXIES_FILE, freshProxies);
         proxies = freshProxies;
-        console.log(`✅ تم تحديث البروكسيات بنجاح (العدد الفعلي المحفوظ: ${proxies.length})`);
+        console.log(`✅ تم تحديث البروكسيات (العدد: ${proxies.length})`);
     } catch(e) {
         if (await fse.pathExists(PROXIES_FILE)) {
             proxies = await fse.readJson(PROXIES_FILE);
         }
-    }
-    if (await fse.pathExists(SCORES_FILE)) {
-        scores = await fse.readJson(SCORES_FILE);
     }
 }
 
@@ -35,31 +31,20 @@ function getProxyCount() { return proxies.length; }
 
 function getBestProxy() {
     if (proxies.length === 0) return null;
-    if (Math.random() < 0.2) return proxies[Math.floor(Math.random() * proxies.length)];
     
-    let topProxies = [];
-    let maxScore = -1;
-
-    for (const proxy of proxies) {
-        const key = `${proxy.ip}:${proxy.port}`;
-        const score = scores[key]?.score ?? 5;
-        if (score > maxScore) { maxScore = score; topProxies = [proxy]; }
-        else if (score === maxScore) { topProxies.push(proxy); }
-    }
-    return topProxies[Math.floor(Math.random() * topProxies.length)];
+    // سحب بروكسي عشوائي من القائمة المتبقية
+    return proxies[Math.floor(Math.random() * proxies.length)];
 }
 
 function reportProxyResult(ip, port, success) {
-    const key = `${ip}:${port}`;
-    if (!scores[key]) scores[key] = { success: 0, fail: 0, score: 5 };
-    if (success) {
-        scores[key].success++;
-        scores[key].score = Math.min(10, scores[key].score + 0.5);
+    if (!success) {
+        // 🔴 سياسة الاستبعاد الفوري: إذا فشل، يتم حذفه من القائمة نهائياً
+        proxies = proxies.filter(p => p.ip !== ip || p.port !== port);
+        console.log(`🗑️ تم حذف البروكسي الميت: ${ip}:${port} | المتبقي: ${proxies.length}`);
     } else {
-        scores[key].fail++;
-        scores[key].score = Math.max(0, scores[key].score - 1);
+        // 🟢 إذا نجح، نتركه في القائمة ليعاد استخدامه لاحقاً
+        console.log(`⭐ بروكسي ممتاز: ${ip}:${port}`);
     }
-    fse.writeJson(SCORES_FILE, scores).catch(()=>{});
 }
 
 module.exports = { loadProxies, getBestProxy, reportProxyResult, getProxyCount };
