@@ -5,8 +5,8 @@ const urlsInput = document.getElementById('urlsInput');
 const countInput = document.getElementById('countInput');
 const proxyStats = document.getElementById('proxyStats');
 
-// غيّر هذا بعد نشر الخادم الوسيط على Render
-const BACKEND_URL = 'https://your-backend.onrender.com';
+// غيّر هذا بعد نشر الخادم الوسيط على  
+const BACKEND_URL = 'https://hydraview-ultimate.onrender.com';
 
 async function updateProxyCount() {
     try {
