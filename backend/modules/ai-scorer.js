@@ -11,11 +11,16 @@ let scores = {};
 
 async function loadProxies() {
     try {
-        const freshProxies = await harvestAll();
+        let freshProxies = await harvestAll();
+        
+        if (freshProxies.length > 3000) {
+            freshProxies = freshProxies.sort(() => 0.5 - Math.random()).slice(0, 3000);
+        }
+
         await fse.ensureDir(DATA_DIR);
         await fse.writeJson(PROXIES_FILE, freshProxies);
         proxies = freshProxies;
-        console.log(`✅ تم تحديث البروكسيات: ${proxies.length} وكيل`);
+        console.log(`✅ تم تحديث البروكسيات بنجاح (العدد الفعلي المحفوظ: ${proxies.length})`);
     } catch(e) {
         console.error('فشل جلب البروكسيات:', e);
         if (await fse.pathExists(PROXIES_FILE)) {
@@ -34,12 +39,10 @@ function getProxyCount() {
 function getBestProxy() {
     if (proxies.length === 0) return null;
     
-    // Epsilon-Greedy: 20% استكشاف عشوائي
     if (Math.random() < 0.2) {
         return proxies[Math.floor(Math.random() * proxies.length)];
     }
     
-    // تجميع البروكسيات ذات التقييم الأعلى واختيار واحد عشوائياً منها
     let topProxies = [];
     let maxScore = -1;
 
@@ -49,13 +52,12 @@ function getBestProxy() {
         
         if (score > maxScore) {
             maxScore = score;
-            topProxies = [proxy]; // بدء قائمة جديدة بأعلى تقييم
+            topProxies = [proxy];
         } else if (score === maxScore) {
-            topProxies.push(proxy); // إضافة البروكسي للقائمة إذا تساوى مع الأعلى
+            topProxies.push(proxy);
         }
     }
 
-    // اختيار بروكسي عشوائي من قائمة الأفضل (لمنع تكرار نفس الـ IP)
     return topProxies[Math.floor(Math.random() * topProxies.length)];
 }
 
