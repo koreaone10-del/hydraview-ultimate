@@ -5,16 +5,14 @@ const urlsInput = document.getElementById('urlsInput');
 const countInput = document.getElementById('countInput');
 const proxyStats = document.getElementById('proxyStats');
 
-// رابط الخادم الخاص بك
 const BACKEND_URL = 'https://hydraview-ultimate.onrender.com';
-let activeSessions = []; // لتخزين الجلسات النشطة لإيقافها لاحقاً
+let activeSessions = []; 
 
-// تحديث عدد البروكسيات مع إظهار حالة الخادم
 async function updateProxyCount() {
     proxyStats.textContent = '⏳ جاري الاتصال بالخادم...';
     try {
         const res = await fetch(`${BACKEND_URL}/api/proxy-count`);
-        if (!res.ok) throw new Error('Network response was not ok');
+        if (!res.ok) throw new Error('Network error');
         const data = await res.json();
         proxyStats.textContent = `البروكسيات: ${data.count}`;
     } catch (e) { 
@@ -23,7 +21,6 @@ async function updateProxyCount() {
 }
 updateProxyCount();
 
-// استخراج المعرف لدعم روابط يوتيوب العادية والفيديوهات القصيرة (Shorts)
 function extractYouTubeID(url) {
     const reg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
     const match = url.match(reg);
@@ -32,14 +29,12 @@ function extractYouTubeID(url) {
 
 launchBtn.addEventListener('click', async () => {
     const lines = urlsInput.value.split('\n').map(s => s.trim()).filter(Boolean);
-    
     if (!lines.length) return alert('أدخل رابطاً واحداً على الأقل');
     
-    const count = Math.min(parseInt(countInput.value) || 1, 4); // تحديد أقصى عدد مؤقتاً لحماية الخادم
+    const count = Math.min(parseInt(countInput.value) || 1, 4); 
     grid.innerHTML = '';
     activeSessions = [];
     
-    // تعطيل الزر أثناء التجهيز
     launchBtn.disabled = true;
     launchBtn.textContent = '⏳ يتم تجهيز الخادم...';
 
@@ -53,19 +48,13 @@ launchBtn.addEventListener('click', async () => {
         }
 
         try {
-            // إرسال الطلب للخادم
             const sessionRes = await fetch(`${BACKEND_URL}/api/create-session?videoId=${videoId}`);
             const data = await sessionRes.json();
             
-            // إذا كان هناك خطأ من الخادم (مثل امتلاء الذاكرة أو فشل البروكسي)
-            if (!sessionRes.ok) {
-                throw new Error(data.error || 'البروكسي ضعيف، حاول مجدداً');
-            }
+            if (!sessionRes.ok) throw new Error(data.error || 'فشل الاتصال');
             
-            // إضافة الجلسة لقائمة الإيقاف
             activeSessions.push(data.sessionId);
 
-            // إنشاء بطاقة النجاح
             const cell = document.createElement('div');
             cell.className = 'video-cell';
             cell.style.display = 'flex';
@@ -78,13 +67,10 @@ launchBtn.addEventListener('click', async () => {
                 <div style="color: #4ade80; margin-bottom: 10px;">${data.status}</div>
                 <div style="font-size: 12px; color: #8b949e;">البروكسي المستخدم:</div>
                 <div style="font-size: 14px; font-weight: bold; color: #fff;">${data.proxyInfo}</div>
-                <div style="font-size: 10px; color: #8b949e; margin-top: 10px;">(يتم التشغيل كشبح في الخلفية)</div>
             `;
-
             grid.appendChild(cell);
             
         } catch (error) {
-            // إنشاء بطاقة الفشل
             const cell = document.createElement('div');
             cell.className = 'video-cell';
             cell.style.display = 'flex';
@@ -101,22 +87,17 @@ launchBtn.addEventListener('click', async () => {
                 </div>
             `;
             grid.appendChild(cell);
-            console.error(error);
         }
     }
     
-    // إعادة الزر لشكله الطبيعي
     launchBtn.disabled = false;
     launchBtn.textContent = '🚀 تشغيل';
 });
 
 stopBtn.addEventListener('click', () => {
-    // إيقاف جميع المتصفحات النشطة على الخادم
     activeSessions.forEach(sessionId => {
-        fetch(`${BACKEND_URL}/api/stop-session?sessionId=${sessionId}`).catch(e => console.error(e));
+        fetch(`${BACKEND_URL}/api/stop-session?sessionId=${sessionId}`).catch(() => {});
     });
-    
-    // مسح الشاشة وإظهار رسالة
-    grid.innerHTML = '<div style="color: #f85149; padding: 20px;">تم إرسال أمر الإيقاف لتفريغ ذاكرة الخادم.</div>';
+    grid.innerHTML = '<div style="color: #f85149; padding: 20px;">تم إرسال أمر الإيقاف لتفريغ الذاكرة.</div>';
     activeSessions = [];
 });
