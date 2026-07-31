@@ -5,54 +5,50 @@ const urlsInput = document.getElementById('urlsInput');
 const countInput = document.getElementById('countInput');
 const proxyStats = document.getElementById('proxyStats');
 
-// استبدل هذا الرابط برابط الخادم الخاص بك من Render
+// تم وضع رابط الخادم الخاص بك هنا
 const BACKEND_URL = 'https://hydraview-ultimate.onrender.com';
 
-// تحديث عدد البروكسيات
 async function updateProxyCount() {
     try {
         const res = await fetch(`${BACKEND_URL}/api/proxy-count`);
         const data = await res.json();
         proxyStats.textContent = `البروكسيات: ${data.count}`;
-    } catch {
-        proxyStats.textContent = 'البروكسيات: خطأ';
+    } catch { 
+        proxyStats.textContent = 'البروكسيات: ?'; 
     }
 }
 updateProxyCount();
 
-// استخراج ID الفيديو من أي رابط يوتيوب (عادي، Shorts، مضمّن)
 function extractYouTubeID(url) {
-    const patterns = [
-        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
-        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
-        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
-        /(?:https?:\/\/)?youtu\.be\/([a-zA-Z0-9_-]{11})/
-    ];
-    for (const pattern of patterns) {
-        const match = url.match(pattern);
-        if (match) return match[1];
-    }
-    return null;
+    const reg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+    const match = url.match(reg);
+    return match ? match[1] : null;
 }
 
 launchBtn.addEventListener('click', async () => {
     const lines = urlsInput.value.split('\n').map(s => s.trim()).filter(Boolean);
+    
     if (!lines.length) return alert('أدخل رابطاً واحداً على الأقل');
+    
     const count = Math.min(parseInt(countInput.value) || 1, 200);
     grid.innerHTML = '';
+    
+    // تعطيل الزر مؤقتاً وتغيير النص لتأكيد الاستجابة
+    launchBtn.disabled = true;
+    launchBtn.textContent = '⏳ جاري التشغيل...';
 
     for (let i = 0; i < count; i++) {
         const videoUrl = lines[i % lines.length];
         const videoId = extractYouTubeID(videoUrl);
-        if (!videoId) {
-            console.warn('لم يتم التعرف على الرابط:', videoUrl);
-            continue;
-        }
+        if (!videoId) continue;
 
         try {
-            // طلب جلسة من الخادم
+            // طلب جلسة جديدة من الخادم
             const sessionRes = await fetch(`${BACKEND_URL}/api/create-session?videoId=${videoId}`);
-            if (!sessionRes.ok) throw new Error('فشل إنشاء الجلسة');
+            
+            // التأكد من أن الخادم رد بنجاح
+            if (!sessionRes.ok) throw new Error('فشل الاتصال بالخادم');
+            
             const { sessionId, proxyInfo } = await sessionRes.json();
 
             const cell = document.createElement('div');
@@ -70,10 +66,16 @@ launchBtn.addEventListener('click', async () => {
             cell.appendChild(iframe);
             cell.appendChild(label);
             grid.appendChild(cell);
-        } catch (err) {
-            console.error('خطأ في النافذة', i, err);
+            
+        } catch (error) {
+            console.error('حدث خطأ أثناء تحميل الفيديو:', error);
+            break; // إيقاف الحلقة إذا كان الخادم لا يستجيب
         }
     }
+    
+    // إعادة الزر لحالته الطبيعية بعد الانتهاء
+    launchBtn.disabled = false;
+    launchBtn.textContent = '🚀 تشغيل';
 });
 
 stopBtn.addEventListener('click', () => {
