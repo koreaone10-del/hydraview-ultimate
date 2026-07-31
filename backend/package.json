@@ -13,6 +13,7 @@
     "p-map": "^4.0.0",
     "cors": "^2.8.5",
     "fs-extra": "^11.2.0",
-    "puppeteer": "^22.0.0"
+    "puppeteer-core": "^22.0.0",
+    "@sparticuz/chromium": "^122.0.0"
   }
 }
