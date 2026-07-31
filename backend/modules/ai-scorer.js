@@ -10,7 +10,6 @@ let proxies = [];
 let scores = {};
 
 async function loadProxies() {
-    // جلب البروكسيات من جميع المصادر وحفظها
     try {
         const freshProxies = await harvestAll();
         await fse.ensureDir(DATA_DIR);
@@ -19,12 +18,10 @@ async function loadProxies() {
         console.log(`✅ تم تحديث البروكسيات: ${proxies.length} وكيل`);
     } catch(e) {
         console.error('فشل جلب البروكسيات:', e);
-        // تحميل من الملف إن وجد
         if (await fse.pathExists(PROXIES_FILE)) {
             proxies = await fse.readJson(PROXIES_FILE);
         }
     }
-    // تحميل السجلات
     if (await fse.pathExists(SCORES_FILE)) {
         scores = await fse.readJson(SCORES_FILE);
     }
@@ -36,18 +33,30 @@ function getProxyCount() {
 
 function getBestProxy() {
     if (proxies.length === 0) return null;
-    // Epsilon-Greedy: 80% استغلال، 20% استكشاف
+    
+    // Epsilon-Greedy: 20% استكشاف عشوائي
     if (Math.random() < 0.2) {
         return proxies[Math.floor(Math.random() * proxies.length)];
     }
-    // اختر الأعلى نقاطاً (إذا لم توجد نقاط، تُعتبر 5)
-    return proxies.reduce((a, b) => {
-        const aKey = `${a.ip}:${a.port}`;
-        const bKey = `${b.ip}:${b.port}`;
-        const aScore = scores[aKey]?.score ?? 5;
-        const bScore = scores[bKey]?.score ?? 5;
-        return aScore > bScore ? a : b;
-    });
+    
+    // تجميع البروكسيات ذات التقييم الأعلى واختيار واحد عشوائياً منها
+    let topProxies = [];
+    let maxScore = -1;
+
+    for (const proxy of proxies) {
+        const key = `${proxy.ip}:${proxy.port}`;
+        const score = scores[key]?.score ?? 5;
+        
+        if (score > maxScore) {
+            maxScore = score;
+            topProxies = [proxy]; // بدء قائمة جديدة بأعلى تقييم
+        } else if (score === maxScore) {
+            topProxies.push(proxy); // إضافة البروكسي للقائمة إذا تساوى مع الأعلى
+        }
+    }
+
+    // اختيار بروكسي عشوائي من قائمة الأفضل (لمنع تكرار نفس الـ IP)
+    return topProxies[Math.floor(Math.random() * topProxies.length)];
 }
 
 function reportProxyResult(ip, port, success) {
@@ -60,7 +69,6 @@ function reportProxyResult(ip, port, success) {
         scores[key].fail++;
         scores[key].score = Math.max(0, scores[key].score - 1);
     }
-    // حفظ دوري (يمكن تحسينه)
     fse.writeJson(SCORES_FILE, scores).catch(()=>{});
 }
 
