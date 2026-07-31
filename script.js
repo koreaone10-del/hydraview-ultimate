@@ -15,13 +15,14 @@ async function updateProxyCount() {
         const res = await fetch(`${BACKEND_URL}/api/proxy-count`);
         if (!res.ok) throw new Error('Network error');
         const data = await res.json();
-        proxyStats.textContent = `البروكسيات: ${data.count}`;
+        // عرض البروكسيات العادية + البروكسيات المحفوظة (الممتازة)
+        proxyStats.textContent = `البروكسيات: ${data.count} | المحفوظة الشغالة: ${data.premiumCount}`;
     } catch (e) { 
         proxyStats.textContent = '⚠️ الخادم نائم (أعد التحديث)'; 
     }
 }
 updateProxyCount();
-setInterval(updateProxyCount, 10000); // تحديث العداد كل 10 ثواني لترى التنظيف المباشر للبروكسيات
+setInterval(updateProxyCount, 15000); 
 
 function extractYouTubeID(url) {
     const reg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
@@ -68,7 +69,11 @@ async function startSquareLoop(cell, initialUrlIndex, lines) {
             
             activeSessions.push(data.sessionId);
 
-            let timeLeft = 60 + Math.floor(Math.random() * 30); 
+            // 🚀 الرفع للأعلى: بمجرد النجاح، ننقل المربع إلى أعلى الشاشة
+            grid.prepend(cell);
+
+            // عداد المشاهدة العشوائي (بين 60 و 120 ثانية لزيادة فرصة الاحتساب)
+            let timeLeft = 60 + Math.floor(Math.random() * 60); 
             
             while (timeLeft > 0 && squareActive && isSystemRunning) {
                 cell.innerHTML = `
@@ -88,11 +93,12 @@ async function startSquareLoop(cell, initialUrlIndex, lines) {
             }
 
         } catch (error) {
-            // 🔴 البروكسي فشل وتم إعدامه في الخادم، ننتقل للذي يليه بسرعة
             cell.innerHTML = `
                 <div class="status-text text-red">❌ فشل الاتصال</div>
                 <div class="proxy-text">تم حذفه، طلب بديل...</div>
             `;
+            // إعادة المربع الفاشل للأسفل (اختياري، ليبرز الناجح أكثر)
+            grid.appendChild(cell);
             await sleep(2000); 
         }
     }
@@ -119,11 +125,8 @@ launchBtn.addEventListener('click', async () => {
 
 stopBtn.addEventListener('click', () => {
     isSystemRunning = false;
-    
     const cells = document.querySelectorAll('.video-cell');
-    cells.forEach(cell => {
-        if(cell.stopLoop) cell.stopLoop();
-    });
+    cells.forEach(cell => { if(cell.stopLoop) cell.stopLoop(); });
 
     activeSessions.forEach(sessionId => {
         fetch(`${BACKEND_URL}/api/stop-session?sessionId=${sessionId}`).catch(() => {});
